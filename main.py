@@ -1,4 +1,3 @@
-# main.py
 # Implementation of a Simple Moving Average (SMA) Crossover strategy.
 
 import numpy as np
