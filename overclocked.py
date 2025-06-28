@@ -1,173 +1,100 @@
-'''Kelly-style leverage
+import numpy as np
 
-Cross-asset clustering (mini market regimes)
-
-MACD or other cross-confirmation filters'''
-
-#****** BEST RN
-
-'''import numpy as np
-
+# number of instruments (stocks)
 nInst = 50
+
+# global variables to track current positions and how long we’ve held them
 currentPos = np.zeros(nInst)
+hold_days = np.zeros(nInst)
 
 def getMyPosition(prcSoFar):
-    global currentPos
+    global currentPos, hold_days
     n, t = prcSoFar.shape
 
+    # if we don’t have enough data (less than 1 year), don’t trade
     if t < 252:
-        return np.zeros(n)
+        currentPos = np.zeros(n)
+        hold_days = np.zeros(n)
+        return currentPos
 
-    # === 1. Compute log returns ===
+    # === 1. check if the market is in an uptrend ===
+    # we calculate the average price of all instruments
+    market_prices = prcSoFar.mean(axis=0)
+    # check the 21-day market return (approx. 1 trading month)
+    market_return = np.log(market_prices[-1] / market_prices[-21])
+
+    # if the market is falling, we sit out (no trades)
+    if market_return <= 0:
+        currentPos = np.zeros(n)
+        hold_days = np.zeros(n)
+        return currentPos
+
+    # === 2. Calculate daily log returns ===
     returns = np.diff(np.log(prcSoFar), axis=1)
 
-    # === 2. PCA to remove market component ===
-    X = returns[:, -252:]
-    X -= X.mean(axis=1, keepdims=True)
-    cov = np.cov(X)
-    eigvals, eigvecs = np.linalg.eigh(cov)
-    top_pc = eigvecs[:, -1].reshape(-1, 1)
-    market_component = top_pc @ (top_pc.T @ X)
-    residuals = X - market_component
+    # === 3. use PCA to remove the shared market effect ===
+    X = returns[:, -252:]  # Use past 252 days (1 year)
+    X -= X.mean(axis=1, keepdims=True)  # Demean each stock's return series
+    cov = np.cov(X)  # Covariance matrix
+    _, eigvecs = np.linalg.eigh(cov)  # Eigen decomposition(i, ignore the first value)
+    market_pc = eigvecs[:, -1].reshape(-1, 1)  # First principal component (market direction)
+    market_component = market_pc @ (market_pc.T @ X)  # Project market factor out
+    residuals = X - market_component  # Leftover = unique stock behavior
 
-    # === 3. Momentum signal ===
+    # === 4. Calculate momentum from residuals ===
+    # Momentum = average residual return over past 20 days
     momentum = residuals[:, -20:].mean(axis=1)
 
-    # === 4. EWMA Volatility (lambda = 0.94) ===
-    lam = 0.94
-    ewma_vol = np.sqrt(np.average((residuals[:, -60:] ** 2), axis=1, weights=np.power(lam, np.arange(60)[::-1])) + 1e-8)
+    # === 5. Apply Z-score filtering to only keep strong momentum stocks ===
+    z = (momentum - momentum.mean()) / (momentum.std() + 1e-6)
+    momentum[z <= 0.4] = 0  # Filter out weak signals
 
-    # === 5. Volume filter: ignore instruments with extreme volatility ===
-    vol_thresh = np.percentile(ewma_vol, 90)
-    mask = ewma_vol < vol_thresh
+    # === 6. Calculate 60-day EWMA volatility ===
+    lam = 0.94  # Smoothing factor
+    ewma_weights = np.power(lam, np.arange(60)[::-1])  # Higher weight to recent days
+    ewma_weights /= ewma_weights.sum()
+    ewma_vol = np.sqrt(np.sum((residuals[:, -60:] ** 2) * ewma_weights, axis=1) + 1e-8)
 
-    momentum = momentum * mask
-    ewma_vol = ewma_vol + (1 - mask) * 1e6  # Penalize blocked instruments
+    # === 7. Filter out the most volatile stocks (top 15%) ===
+    vol_cutoff = np.percentile(ewma_vol, 85)
+    momentum[ewma_vol >= vol_cutoff] = 0  # Don’t trade these
+    ewma_vol[ewma_vol >= vol_cutoff] = 1e6  # Prevent them from getting capital
 
-    # === 6. Rank by momentum ===
-    N = 5
+    # === 8. Rank the momentum signals and choose top/bottom 5 ===
     ranked = np.argsort(momentum)
-    short_idx = ranked[:N]
-    long_idx = ranked[-N:]
+    longs = [i for i in ranked[::-1] if momentum[i] > 0][:5]  # Top 5
+    shorts = [i for i in ranked if momentum[i] < 0][:5]       # Bottom 5
 
+    # === 9. Allocate positions ===
     pos = np.zeros(n)
-    capital = 1_000_000
+    capital = 1_000_000  # Total capital
+    max_dollars = 10_000  # Max per stock
 
-    weights_long = capital / (2 * np.sum(1 / ewma_vol[long_idx]))
-    for i in long_idx:
-        pos[i] = weights_long / ewma_vol[i]
+    for i in range(n):
+        # === Keep current position for 1 more day if it's not in new long/short ===
+        if currentPos[i] != 0 and i not in longs + shorts:
+            if hold_days[i] < 2:  # If held for less than 2 days, keep it
+                pos[i] = currentPos[i]
+                hold_days[i] += 1
+            else:
+                hold_days[i] = 0  # Exit
+        # === Allocate new long positions ===
+        elif i in longs:
+            total_inv = sum(1 / ewma_vol[j] for j in longs)
+            weight = capital / (2 * total_inv)
+            dollars = min(weight / ewma_vol[i], max_dollars)
+            pos[i] = dollars / prcSoFar[i, -1]
+            hold_days[i] = 0
+        # === Allocate new short positions ===
+        elif i in shorts:
+            total_inv = sum(1 / ewma_vol[j] for j in shorts)
+            weight = capital / (2 * total_inv)
+            dollars = min(weight / ewma_vol[i], max_dollars)
+            pos[i] = -dollars / prcSoFar[i, -1]
+            hold_days[i] = 0
+        else:
+            hold_days[i] = 0  # If doing nothing, reset hold count
 
-    weights_short = capital / (2 * np.sum(1 / ewma_vol[short_idx]))
-    for i in short_idx:
-        pos[i] = -weights_short / ewma_vol[i]
-
-    pos = np.clip(np.round(pos / prcSoFar[:, -1]), -1000, 1000)
-    currentPos = pos
+    # === 10. Clip and return final positions ===
+    currentPos = np.clip(np.round(pos), -1000, 1000)
     return currentPos
-'''
-#Result (best rn)
-#mean(PL): 7.2
-#return: 0.00013
-#StdDev(PL): 339.85
-#annSharpe(PL): 0.34 
-#totDvolume: 10787369 
-#Score: -26.75
-
-
-
-
-
-'''import numpy as np
-
-nInst = 50
-currentPos = np.zeros(nInst)
-
-def getMyPosition(prcSoFar):
-    global currentPos
-    n, t = prcSoFar.shape
-
-    if t < 252:
-        return np.zeros(n)
-
-    # === 1. Daily log returns ===
-    log_returns = np.diff(np.log(prcSoFar), axis=1)
-
-    # === 2. EWMA volatility ===
-    vol_window = 20
-    weights = np.exp(-np.arange(vol_window)[::-1] / 5)
-    weights /= weights.sum()
-    ewma_vol = np.sqrt((log_returns[:, -vol_window:] ** 2 @ weights)) + 1e-8
-
-    # === 3. PCA residuals ===
-    X = log_returns[:, -252:]
-    X -= X.mean(axis=1, keepdims=True)
-    cov = np.cov(X)
-    eigvals, eigvecs = np.linalg.eigh(cov)
-    market_component = eigvecs[:, -1].reshape(-1, 1)
-    market_proj = market_component @ (market_component.T @ X)
-    residuals = X - market_proj
-
-    # === 4. Residual momentum ===
-    momentum = residuals[:, -20:].mean(axis=1)
-
-    # === 5. Z-score filtering for signal confidence ===
-    z = (momentum - momentum.mean()) / (momentum.std() + 1e-8)
-    long_idx = np.where(z > 1.0)[0]
-    short_idx = np.where(z < -1.0)[0]
-
-    # Cap to top/bottom 10
-    long_idx = long_idx[np.argsort(-z[long_idx])][:10]
-    short_idx = short_idx[np.argsort(z[short_idx])][:10]
-
-    # === 6. Volatility-scaled risk allocation ===
-    capital = 1_000_000
-    pos = np.zeros(n)
-
-    if len(long_idx) > 0:
-        inv_vol_sum = np.sum(1 / ewma_vol[long_idx])
-        risk_per_long = capital / 2 / inv_vol_sum
-        for i in long_idx:
-            pos[i] = risk_per_long / ewma_vol[i]
-
-    if len(short_idx) > 0:
-        inv_vol_sum = np.sum(1 / ewma_vol[short_idx])
-        risk_per_short = capital / 2 / inv_vol_sum
-        for i in short_idx:
-            pos[i] = -risk_per_short / ewma_vol[i]
-
-    # === 7. Convert to shares and cap ===
-    pos = np.clip(np.round(pos / prcSoFar[:, -1]), -1000, 1000)
-    currentPos = pos
-    return currentPos'''
-
-
-#Exp1 trying to improve the best score
-#-- Results for this code
-#mean(PL): 3.0
-#return: 0.00004
-#StdDev(PL): 433.79
-#annSharpe(PL): 0.11 
-#totDvolume: 11877646 
-#Score: -40.41
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
