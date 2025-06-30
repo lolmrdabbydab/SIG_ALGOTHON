@@ -10,7 +10,7 @@ SHORT_TERM_EMA_DAYS = 20
 LONG_TERM_EMA_DAYS = 50
 
 # ======================================================================================
-# --- Main Function ---
+#                                  --- Signal Calculation ---
 # ======================================================================================
 def getSMA(prices):
     # Get dimensions of price data's array
@@ -43,8 +43,9 @@ def getEMA(prices):
     
     return np.array([ema_short.to_numpy(), ema_long.to_numpy()])
 
-
-
+# ======================================================================================
+#                                   --- getMyPosition() ---
+# ======================================================================================
 def getMyPosition(prcSoFar):
     global currentPos
     
@@ -58,8 +59,6 @@ def getMyPosition(prcSoFar):
     
     short_MA = EMAs[0]
     long_MA = EMAs[1]
-    
-    tempList = []
     
     # last day prices
     last = prcSoFar[:, -1]
