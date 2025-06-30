@@ -64,7 +64,6 @@ def getMyPosition(prcSoFar):
     ema_long = getEMA(prcSoFar, LONG_TERM_EMA_DAYS)
 
     # --- Trading Logic ---
-    
     # Calculate percentage difference for all 50 stocks at once
     percentage_diff = np.abs(((ema_short - ema_long) / ema_long) * 100)
 
