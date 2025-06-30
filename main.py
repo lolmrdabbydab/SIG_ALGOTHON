@@ -1,52 +1,82 @@
-# main.py
-# This version is specifically for calculating and returning the SMA values.
-# The output of this function will be used by a teammate's code to determine trade logic.
-
+import pandas as pd
 import numpy as np
 
-# ======================================================================================
-# --- 1. Global Parameters for Easy Tuning ---
-# ======================================================================================
-# Your team can easily change these values to test different MA combinations.
+nInst = 50
+currentPos = np.zeros(nInst)
 
-SHORT_TERM_MA_DAYS = 20
-LONG_TERM_MA_DAYS = 50
+threshold = 0.2
+
+SHORT_TERM_EMA_DAYS = 20
+LONG_TERM_EMA_DAYS = 50
 
 # ======================================================================================
-# --- 2. Main Function (Modified for Your Task) ---
+# --- Main Function ---
 # ======================================================================================
-
-def getMyPosition(prices):
-    """
-    NOTE: For the final submission, this function must return a vector of integer
-    share positions. This modified version is for the team's internal workflow,
-    where this function's role is to ONLY calculate and return the moving averages.
-    The output will be a (2, 50) NumPy array:
-    - Row 0: Short-term SMAs for all 50 stocks.
-    - Row 1: Long-term SMAs for all 50 stocks.
-    """
-    # Get the dimensions of the price data array
+def getSMA(prices):
+    # Get dimensions of price data's array
     nInst, nt = prices.shape
     
-    # --- A. Guard Clause ---
-    # If there isn't enough historical data, return nothing or an empty array.
-    # Returning two empty arrays is a clean way to handle this.
-    if nt < LONG_TERM_MA_DAYS:
-        return np.array([[], []]) # Return an empty (2, 0) array
+    # --- Guard Clause ---
+    # If not enough data -> return empty array
+    if nt < LONG_TERM_EMA_DAYS:
+        return np.array([[], []])
 
-    # --- B. Calculate the Moving Averages ---
+    # --- Calculate MAs ---    
+    price_history_for_ma = prices[:, -LONG_TERM_EMA_DAYS:]
     
-    # To calculate the SMAs for the most recent day, we only need the
-    # last `LONG_TERM_MA_DAYS` worth of prices.
-    price_history_for_ma = prices[:, -LONG_TERM_MA_DAYS:]
-
-    # Calculate the short-term SMA for each stock
-    # We take the last SHORT_TERM_MA_DAYS from our sliced history
-    sma_short = np.mean(price_history_for_ma[:, -SHORT_TERM_MA_DAYS:], axis=1)
-    
-    # Calculate the long-term SMA for each stock
+    sma_short = np.mean(price_history_for_ma[:, -SHORT_TERM_EMA_DAYS:], axis=1)
     sma_long = np.mean(price_history_for_ma, axis=1)
     
-    # --- C. Return the Calculated MAs ---
-    # Stack the two arrays into a single (2, 50) NumPy array.
+    # --- Return Calculated MAs ---
     return np.array([sma_short, sma_long])
+
+def getEMA(prices):
+    nInst, nt = prices.shape
+    
+    if nt < LONG_TERM_EMA_DAYS:
+        return np.array([[], []])
+
+    prices_df = pd.DataFrame(prices.T)
+    
+    ema_short = prices_df.ewm(span=SHORT_TERM_EMA_DAYS, adjust=False).mean().iloc[-1]
+    ema_long = prices_df.ewm(span=LONG_TERM_EMA_DAYS, adjust=False).mean().iloc[-1]
+    
+    return np.array([ema_short.to_numpy(), ema_long.to_numpy()])
+
+
+
+def getMyPosition(prcSoFar):
+    global currentPos
+    
+    EMAs = getEMA(prcSoFar)
+    # prcsofar is 50 rows and 750 columns 
+
+    if EMAs.shape[1] == 0:
+        # Not enough data, so we can't make a decision.
+        # Return the last known position without making any trades.
+        return currentPos
+    
+    short_MA = EMAs[0]
+    long_MA = EMAs[1]
+    
+    tempList = []
+    
+    # last day prices
+    last = prcSoFar[:, -1]
+
+    # evaluate signals
+    for i in range(nInst):
+        per_change = percentageChange(short_MA[i], long_MA[i])
+        
+        # short signal
+        if (short_MA[i] < long_MA[i]) and (per_change > threshold):
+            currentPos[i] = round(-( (1 - short_MA[i]/long_MA[i]) * 10000 )/last[i]) # the smaller shortMA is than longMA the more stocks we borrow (short) 
+        
+        # long signal
+        elif (short_MA[i] > long_MA[i]) and (per_change > threshold):
+            currentPos[i] = round(( (1 - long_MA[i]/short_MA[i]) * 10000 )/last[i]) # the shorter longMA is the lesser the ratio is and the more 
+    
+    return currentPos
+    
+def percentageChange(x, y):
+    return abs(((x - y)/y)*100)
