@@ -22,6 +22,28 @@ def getEMA(prices, lookback):
     prices_df = pd.DataFrame(prices.T)
     return prices_df.ewm(span=lookback, adjust=False).mean().iloc[-1].to_numpy()
 
+def getRSI(prices, window=14):
+    nInst, nt = prices.shape
+    
+    if nt < window + 1:
+        return np.full(nInst, 50.0) # 50 = neutral RSI value
+
+    prices_df = pd.DataFrame(prices.T)
+    delta = prices_df.diff()
+
+    # DF that hold pos changes from 'delta' & set all neg changes to 0
+    gain = (delta.where(delta > 0, 0)).fillna(0)    
+    # DF that hold negative changes (but made into positive value for calculation) & set pos changes to 0.
+    loss = (-delta.where(delta < 0, 0)).fillna(0)
+
+    avg_gain = gain.ewm(com=window - 1, min_periods=window).mean()
+    avg_loss = loss.ewm(com=window - 1, min_periods=window).mean()
+    
+    rs = avg_gain / (avg_loss)
+    rsi = 100 - (100 / (1 + rs))
+
+    return rsi.iloc[-1].fillna(50.0).to_numpy() # .iloc[-1] -> take last day (current day) | .fillna(50.0) -> safeguard empty val w neutral val
+
 # ======================================================================================
 #                               --- getMyPosition() ---
 # ======================================================================================
