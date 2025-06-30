@@ -76,6 +76,10 @@ def getMyPosition(prcSoFar):
             currentPos[i] = round(( (1 - long_MA[i]/short_MA[i]) * 10000 )/last[i]) # the shorter longMA is the lesser the ratio is and the more 
     
     return currentPos
-    
+
+
+# ======================================================================================
+#                                   --- Helper Function ---
+# ======================================================================================
 def percentageChange(x, y):
     return abs(((x - y)/y)*100)
