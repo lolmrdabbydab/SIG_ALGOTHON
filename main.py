@@ -1,85 +1,69 @@
+# main.py
 import pandas as pd
 import numpy as np
 
+# ======================================================================================
+# --- Parameters ---
+# ======================================================================================
 nInst = 50
-currentPos = np.zeros(nInst)
-
-threshold = 0.2
 
 SHORT_TERM_EMA_DAYS = 20
 LONG_TERM_EMA_DAYS = 50
 
+THRESHOLD_PERCENT = 0.2
+
+DOLLAR_LIMIT = 10000
+
 # ======================================================================================
-#                                  --- Signal Calculation ---
+#                               --- Helper Functions ---
 # ======================================================================================
-def getSMA(prices):
-    # Get dimensions of price data's array
-    nInst, nt = prices.shape
-    
-    # --- Guard Clause ---
-    # If not enough data -> return empty array
-    if nt < LONG_TERM_EMA_DAYS:
-        return np.array([[], []])
 
-    # --- Calculate MAs ---    
-    price_history_for_ma = prices[:, -LONG_TERM_EMA_DAYS:]
-    
-    sma_short = np.mean(price_history_for_ma[:, -SHORT_TERM_EMA_DAYS:], axis=1)
-    sma_long = np.mean(price_history_for_ma, axis=1)
-    
-    # --- Return Calculated MAs ---
-    return np.array([sma_short, sma_long])
-
-def getEMA(prices):
-    nInst, nt = prices.shape
-    
-    if nt < LONG_TERM_EMA_DAYS:
-        return np.array([[], []])
-
+def getEMA(prices, lookback):
     prices_df = pd.DataFrame(prices.T)
-    
-    ema_short = prices_df.ewm(span=SHORT_TERM_EMA_DAYS, adjust=False).mean().iloc[-1]
-    ema_long = prices_df.ewm(span=LONG_TERM_EMA_DAYS, adjust=False).mean().iloc[-1]
-    
-    return np.array([ema_short.to_numpy(), ema_long.to_numpy()])
+    return prices_df.ewm(span=lookback, adjust=False).mean().iloc[-1].to_numpy()
 
 # ======================================================================================
-#                                   --- getMyPosition() ---
+#                               --- getMyPosition() ---
 # ======================================================================================
+
 def getMyPosition(prcSoFar):
-    global currentPos
-    
-    EMAs = getEMA(prcSoFar)
-    # prcsofar is 50 rows and 750 columns 
+    nInst, nt = prcSoFar.shape
 
-    if EMAs.shape[1] == 0:
-        # Not enough data, so we can't make a decision.
-        # Return the last known position without making any trades.
-        return currentPos
-    
-    short_MA = EMAs[0]
-    long_MA = EMAs[1]
-    
-    # last day prices
-    last = prcSoFar[:, -1]
+    # Create default position vector of all zeros
+    positions = np.zeros(nInst)
 
-    # evaluate signals
-    for i in range(nInst):
-        per_change = percentageChange(short_MA[i], long_MA[i])
+    # --- Guard Clause ---
+    # If there isn't enough data, return vector positions of zero
+    if nt < LONG_TERM_EMA_DAYS:
+        return positions.astype(int)
+
+    # --- Calculate EMA Signals ---
+    ema_short = getEMA(prcSoFar, SHORT_TERM_EMA_DAYS)
+    ema_long = getEMA(prcSoFar, LONG_TERM_EMA_DAYS)
+
+    # --- Trading Logic ---
+    
+    # Calculate percentage difference for all 50 stocks at once
+    percentage_diff = np.abs(((ema_short - ema_long) / ema_long) * 100)
+
+    # Boolean var to identify which stocks is tradable
+    is_above_threshold = percentage_diff > THRESHOLD_PERCENT
+    long_signal_mask = (ema_short > ema_long) & is_above_threshold
+    short_signal_mask = (ema_short < ema_long) & is_above_threshold
+    
+    # --- Position Sizing ---
+    latest_prices = prcSoFar[:, -1]
+
+    # For stocks with a long signal, calculate their proportional size
+    if np.any(long_signal_mask):
+        long_ratios = 1 - (ema_long[long_signal_mask] / ema_short[long_signal_mask])
+        dollar_allocations_long = long_ratios * DOLLAR_LIMIT
+        positions[long_signal_mask] = dollar_allocations_long / latest_prices[long_signal_mask]
+
+    # For stocks with a short signal, calculate their proportional size
+    if np.any(short_signal_mask):
+        short_ratios = 1 - (ema_short[short_signal_mask] / ema_long[short_signal_mask])
+        dollar_allocations_short = -1 * short_ratios * DOLLAR_LIMIT
+        positions[short_signal_mask] = dollar_allocations_short / latest_prices[short_signal_mask]
         
-        # short signal
-        if (short_MA[i] < long_MA[i]) and (per_change > threshold):
-            currentPos[i] = round(-( (1 - short_MA[i]/long_MA[i]) * 10000 )/last[i]) # the smaller shortMA is than longMA the more stocks we borrow (short) 
-        
-        # long signal
-        elif (short_MA[i] > long_MA[i]) and (per_change > threshold):
-            currentPos[i] = round(( (1 - long_MA[i]/short_MA[i]) * 10000 )/last[i]) # the shorter longMA is the lesser the ratio is and the more 
-    
-    return currentPos
-
-
-# ======================================================================================
-#                                   --- Helper Function ---
-# ======================================================================================
-def percentageChange(x, y):
-    return abs(((x - y)/y)*100)
+    return positions.astype(int)
