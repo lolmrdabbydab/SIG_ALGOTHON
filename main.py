@@ -96,7 +96,7 @@ def getMyPosition(prcSoFar):
     short_MA = EMAs[0]
     long_MA = EMAs[1]
     
-    # last day prices
+    # last day prices yea 
     last = prcSoFar[:, -1]
 
     
