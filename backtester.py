@@ -1,6 +1,6 @@
 import pandas as pd
 from pandas import DataFrame
-from typing import TypedDict, List, Dict, Any
+from typing import TypedDict, List, Dict, Any, Union
 import numpy as np
 from numpy import ndarray
 import matplotlib.pyplot as plt
@@ -105,7 +105,7 @@ class Params:
 		self,
 		strategy_filepath: str = default_strategy_filepath,
 		strategy_function_name: str = default_strategy_function_name,
-		strategy_function: FunctionType | None = None,
+		strategy_function: Union[FunctionType, None] = None,
 		start_day: int = 1,
 		end_day: int = 1000,
 		enable_commission: bool = True,
@@ -480,7 +480,7 @@ def get_ema(instrument_price_history: ndarray, lookback: int) -> ndarray:
 class Backtester:
 	def __init__(self, params: Params) -> None:
 		self.enable_commission: bool = params.enable_commission
-		self.getMyPosition: FunctionType | None
+		self.getMyPosition: Union[FunctionType, None]
 		if params.strategy_function is not None:
 			self.getMyPosition = params.strategy_function
 		else:
@@ -504,8 +504,8 @@ class Backtester:
 		self,
 		start_day: int,
 		end_day: int,
-		config: Dict[int, Dict[str, Dict[str, float]]] | None = None,
-		instruments_to_test: List[int] | None = None
+		config: Union[Dict[int, Dict[str, Dict[str, float]]], None] = None,
+		instruments_to_test: Union[List[int], None] = None
 	) -> BacktesterResults:
 		"""
 		Run the backtest through specified timeline and keep track of daily PnL and capital usage
