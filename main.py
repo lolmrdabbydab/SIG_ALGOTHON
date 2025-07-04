@@ -5,8 +5,8 @@ nInst = 50
 currentPos = np.zeros(nInst)
 
 threshold = 0.35
-short_indicator = 60
-buy_indicator = 40
+short_indicator = 65
+buy_indicator = 35
 scaleFactor = 100
 
 # --- NEW PARAMETER FOR NORMALIZATION ---
@@ -106,7 +106,7 @@ def getMyPosition(prcSoFar):
         
         # short signal
         if (short_MA[i] < long_MA[i]) and (per_change > threshold):
-            if rsi_vals[i] > short_indicator: # 70
+            if rsi_vals[i] > short_indicator: # 60
                 if crossed[0][i] == 0:
                     crossed[0][i] = 1
 

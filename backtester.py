@@ -687,6 +687,7 @@ class Backtester:
 		plt.suptitle("Backtest Performance Summary",
 			fontsize=16,
 			fontweight="bold")
+		plt.savefig("dashboard.png")
 		plt.show()
 
 	def show_price_entries(self, backtester_results: BacktesterResults) -> None:
@@ -798,6 +799,7 @@ class Backtester:
 		fig.canvas.mpl_connect('key_press_event', on_key)
 		plt.legend()
 		plt.grid(True, alpha=0.7)
+		plt.savefig("price_entry.png")
 		plt.show()
 
 
