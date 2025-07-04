@@ -120,7 +120,7 @@ def getMyPosition(prcSoFar):
                     # rsi indicator to short, as the value went up and now its coming down again
                     currentPos[i] = round((dollar_position / last[i])) # the smaller shortMA is than longMA the more stocks we borrow (short) 
                     crossed[0][i] = 0
-            
+
         # long signal
         elif (short_MA[i] > long_MA[i]) and (per_change > threshold):
             if rsi_vals[i] < buy_indicator: # 30
@@ -143,7 +143,7 @@ def getMyPosition(prcSoFar):
 
 
 # ======================================================================================
-#                                   --- Helper Function ---
+#                                --- Helper Function ---
 # ======================================================================================
 def percentageChange(x, y):
     return abs(((x - y)/y)*100)
