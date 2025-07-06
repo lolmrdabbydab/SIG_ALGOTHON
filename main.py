@@ -112,7 +112,7 @@ def calculatePerChange(new_val, old_val):
 
 def getVolatility(prices):
 
-    price_history = prices[:, -VOLATILITY_PERIOD - 1]
+    price_history = prices[:, -(VOLATILITY_PERIOD + 1):]
     volatility = np.zeros(nInst)
 
     for n, stock in enumerate(price_history):
