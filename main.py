@@ -156,14 +156,9 @@ def getMyPosition(prcSoFar):
                     sell += 1
                 
                 if sell >= 2:
-                    # Conservative but profitable approach
-                    base_position = 5000  # 50% of max position as base
+                    base_position = 5000  
                     currentPos[i] = -base_position * (sell / 3)  # Scale by signal strength
                     
-                elif buy >= 2:
-                    currentPos[i] = base_position * (buy / 3)   # Scale by signal strength
-                    # calculate selling position
-                
             else:
                 # UPTREND, ONLY LOOK FOR BUYING OPPORTUNITIES
                 buy = 0
@@ -177,8 +172,9 @@ def getMyPosition(prcSoFar):
                     buy += 1
                 
                 if buy >= 2:
-                    # calculate selling position
-                    return 1
+                    base_position = 5000
+                    currentPos[i] = base_position * (buy / 3)   # Scale by signal strength
+                    
     
 
     return currentPos
