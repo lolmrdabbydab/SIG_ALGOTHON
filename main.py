@@ -1,25 +1,26 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 nInst = 50
 currentPos = np.zeros(nInst)
 
-threshold = 0.35
-short_indicator = 60
-buy_indicator = 40
-scaleFactor = 100
 
-# --- NEW PARAMETER FOR NORMALIZATION ---
-# This is the % difference between EMAs that we consider a 'maximum strength' signal.
-# A good starting point is 2.0. You can tune this value.
-MAX_TREND_STRENGTH = 2.0
+VOLATILITY_PERIOD = 20
+VOLATILITY_THRESHOLD = 0.015
 
 SHORT_TERM_EMA_DAYS = 50
 LONG_TERM_EMA_DAYS = 180
 
-# ======================================================================================
-#                                  --- Signal Calculation ---
-# ======================================================================================
+# TOOLS THRESHOLDS
+RSI_SELL = 70
+RSI_BUY = 30
+STOCHASTIC_WINDOW = 14
+STOCHASTIC_SELL = 80
+STOCHASTIC_BUY = 20
+CCI_WINDOW = 20
+CCI_THRESHOLD = 100
+
+
 def getSMA(prices):
     # Get dimensions of price data's array
     nInst, nt = prices.shape
@@ -73,77 +74,112 @@ def getRSI(prices, window=14):
 
     return rsi.iloc[-1].fillna(50.0).to_numpy() # .iloc[-1] -> take last day (current day) | .fillna(50.0) -> safeguard empty val w neutral val
 
+def getStochastic(prices, window=14):
+    nInst, nt = prices.shape
+    
+    if nt < window:
+        return np.full(nInst, 50.0)
 
-crossed = np.zeros((2,50)) # check if the short (0) and long(1) rsi indicators have been crossed
+    prices_df = pd.DataFrame(prices.T)
+    
+    highest_high = prices_df.rolling(window=window, min_periods=window).max()
+    lowest_low = prices_df.rolling(window=window, min_periods=window).min()
 
-# ======================================================================================
-#                                   --- getMyPosition() ---
-# ======================================================================================
+    stochastic_k = 100 * ((prices_df - lowest_low) / (highest_high - lowest_low + 1e-6))
+    
+    return stochastic_k.iloc[-1].fillna(50.0).to_numpy()
+
+def getCCI(prices, window=20):
+    nInst, nt = prices.shape
+
+    if nt < window:
+        return np.full(nInst, 0.0) # Return a neutral CCI of 0.
+
+    prices_df = pd.DataFrame(prices.T)
+    
+    typical_price = prices_df
+
+    sma_tp = typical_price.rolling(window=window, min_periods=window).mean()
+    mean_dev = (typical_price - sma_tp).abs().rolling(window=window, min_periods=window).mean()
+
+    cci = (typical_price - sma_tp) / (0.015 * mean_dev + 1e-6)
+    
+    return cci.iloc[-1].fillna(0.0).to_numpy()
+
+
+def calculatePerChange(new_val, old_val):
+    return ((new_val - old_val)/old_val)*100
+
+def getVolatility(prices):
+
+    price_history = prices[:, -VOLATILITY_PERIOD - 1]
+    volatility = np.zeros(nInst)
+
+    for n, stock in enumerate(price_history):
+        per_change_arr = np.zeros(VOLATILITY_PERIOD)
+        for i in range(1, VOLATILITY_PERIOD + 1):
+            per_change_arr = calculatePerChange(stock[i], stock[i - 1])
+        
+        volatility[n] = np.std(per_change_arr)
+
+    return volatility
+
+
 def getMyPosition(prcSoFar):
     global currentPos
-    global crossed
 
-    EMAs = getEMA(prcSoFar)
-    # prcsofar is 50 rows and 750 columns 
+    # All the tools
+    vol = getVolatility(prcSoFar)
+    rsi = getRSI(prcSoFar)
+    cci = getCCI(prcSoFar)
+    stoc = getStochastic(prcSoFar)
+    EMA = getEMA(prcSoFar)
+    short_EMA = EMA[0]
+    long_EMA = EMA[1]
 
-    if EMAs.shape[1] == 0:
-        # Not enough data, so we can't make a decision.
-        # Return the last known position without making any trades.
-        return currentPos
-    
-    rsi_vals = getRSI(prcSoFar)
-    
-    short_MA = EMAs[0]
-    long_MA = EMAs[1]
-    
-    # last day prices
-    last = prcSoFar[:, -1]
 
-    
-    # evaluate signals
     for i in range(nInst):
-        per_change = percentageChange(short_MA[i], long_MA[i])
-        
-        # short signal
-        if (short_MA[i] < long_MA[i]) and (per_change > threshold):
-            if rsi_vals[i] > short_indicator: # 70
-                if crossed[0][i] == 0:
-                    crossed[0][i] = 1
+        if vol[i] < VOLATILITY_THRESHOLD:
+            continue
 
+        else:
+            if (short_EMA < long_EMA):
+                # DOWNTREND, ONLY LOOK FOR SELLING OPPORTUNITIES
+                sell = 0
+                if (rsi[i] >= RSI_SELL):
+                    sell += 1
+                
+                if (cci[i] >= CCI_THRESHOLD):
+                    sell += 1
+                
+                if (stoc[i] >= STOCHASTIC_SELL):
+                    sell += 1
+                
+                if sell >= 2:
+                    # Conservative but profitable approach
+                    base_position = 5000  # 50% of max position as base
+                    currentPos[i] = -base_position * (sell / 3)  # Scale by signal strength
+                    
+                elif buy >= 2:
+                    currentPos[i] = base_position * (buy / 3)   # Scale by signal strength
+                    # calculate selling position
+                
             else:
-                if crossed[0][i] == 1:
-                    # Calculate a normalized strength score (0 to 1)
-                    normalized_strength = min(per_change, MAX_TREND_STRENGTH) / MAX_TREND_STRENGTH
-                    # Determine the dollar amount for the position based on strength
-                    dollar_position = normalized_strength * 10000
-
-                    # rsi indicator to short, as the value went up and now its coming down again
-                    currentPos[i] = round((dollar_position / last[i])) # the smaller shortMA is than longMA the more stocks we borrow (short) 
-                    crossed[0][i] = 0
-
-        # long signal
-        elif (short_MA[i] > long_MA[i]) and (per_change > threshold):
-            if rsi_vals[i] < buy_indicator: # 30
-                if crossed[1][i] == 0:
-                    crossed[1][i] = 1
-                else:
-                    if crossed[1][i] == 1:
-                        normalized_strength = min(per_change, MAX_TREND_STRENGTH) / MAX_TREND_STRENGTH
-                    # Determine the dollar amount for the position based on strength
-                        dollar_position = normalized_strength * 10000
-                    # Convert to number of shares
-                        currentPos[i] = -round(dollar_position / last[i])
-                        # rsi indicator to buy, as the upward trend is continuing
-                        crossed[1][i] = 0
-
-        else: # per change less than threshold - no buy/sell zone (no clear trend)
-            currentPos[i] = 0
+                # UPTREND, ONLY LOOK FOR BUYING OPPORTUNITIES
+                buy = 0
+                if (rsi[i] <= RSI_BUY):
+                    buy += 1
+                
+                if (cci[i] <= -CCI_THRESHOLD):
+                    buy += 1
+                
+                if (stoc[i] <= STOCHASTIC_SELL):
+                    buy += 1
+                
+                if buy >= 2:
+                    # calculate selling position
+                    return 1
+    
 
     return currentPos
-
-
-# ======================================================================================
-#                                --- Helper Function ---
-# ======================================================================================
-def percentageChange(x, y):
-    return abs(((x - y)/y)*100)
+            
