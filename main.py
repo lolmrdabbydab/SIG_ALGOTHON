@@ -6,10 +6,10 @@ currentPos = np.zeros(nInst)
 
 
 VOLATILITY_PERIOD = 20
-VOLATILITY_THRESHOLD = 0.015
+VOLATILITY_THRESHOLD = 0.15
 
-SHORT_TERM_EMA_DAYS = 50
-LONG_TERM_EMA_DAYS = 180
+SHORT_TERM_EMA_DAYS = 30
+LONG_TERM_EMA_DAYS = 150
 
 # TOOLS THRESHOLDS
 RSI_SELL = 70
@@ -111,9 +111,12 @@ def calculatePerChange(new_val, old_val):
     return ((new_val - old_val)/old_val)*100
 
 def getVolatility(prices):
-
+    nInst, nt = prices.shape
+    if nt < VOLATILITY_PERIOD + 1:
+        return np.zeros(nInst)
+    
     price_history = prices[:, -(VOLATILITY_PERIOD + 1):]
-   
+    
     volatility = np.zeros(nInst)
 
     for n, stock in enumerate(price_history):
@@ -127,7 +130,13 @@ def getVolatility(prices):
 
 def getMyPosition(prcSoFar):
     global currentPos
+    nInst, nt = prcSoFar.shape
 
+    # --- Guard Clause ---
+    # If there isn't enough data for the long-term EMA, return the current positions without change.
+    if nt < LONG_TERM_EMA_DAYS:
+        return currentPos
+    
     # All the tools
     vol = getVolatility(prcSoFar)
     rsi = getRSI(prcSoFar)
@@ -143,7 +152,7 @@ def getMyPosition(prcSoFar):
             continue
 
         else:
-            if (short_EMA < long_EMA):
+            if (short_EMA[i] < long_EMA[i]):
                 # DOWNTREND, ONLY LOOK FOR SELLING OPPORTUNITIES
                 sell = 0
                 if (rsi[i] >= RSI_SELL):
@@ -168,7 +177,7 @@ def getMyPosition(prcSoFar):
                 if (cci[i] <= -CCI_THRESHOLD):
                     buy += 1
                 
-                if (stoc[i] <= STOCHASTIC_SELL):
+                if (stoc[i] <= STOCHASTIC_BUY):
                     buy += 1
                 
                 if buy >= 2:
