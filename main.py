@@ -8,8 +8,9 @@ currentPos = np.zeros(nInst)
 VOLATILITY_PERIOD = 20
 VOLATILITY_THRESHOLD = 0.15
 
-SHORT_TERM_EMA_DAYS = 30
-LONG_TERM_EMA_DAYS = 150
+SHORT_TERM_EMA_DAYS = 20
+LONG_TERM_EMA_DAYS = 50
+
 
 # TOOLS THRESHOLDS
 RSI_SELL = 70
@@ -19,25 +20,6 @@ STOCHASTIC_SELL = 80
 STOCHASTIC_BUY = 20
 CCI_WINDOW = 20
 CCI_THRESHOLD = 100
-
-
-def getSMA(prices):
-    # Get dimensions of price data's array
-    nInst, nt = prices.shape
-    
-    # --- Guard Clause ---
-    # If not enough data -> return empty array
-    if nt < LONG_TERM_EMA_DAYS:
-        return np.array([[], []])
-
-    # --- Calculate MAs ---    
-    price_history_for_ma = prices[:, -LONG_TERM_EMA_DAYS:]
-    
-    sma_short = np.mean(price_history_for_ma[:, -SHORT_TERM_EMA_DAYS:], axis=1)
-    sma_long = np.mean(price_history_for_ma, axis=1)
-    
-    # --- Return Calculated MAs ---
-    return np.array([sma_short, sma_long])
 
 def getEMA(prices):
     nInst, nt = prices.shape
@@ -136,7 +118,7 @@ def getMyPosition(prcSoFar):
     # If there isn't enough data for the long-term EMA, return the current positions without change.
     if nt < LONG_TERM_EMA_DAYS:
         return currentPos
-    
+
     # All the tools
     vol = getVolatility(prcSoFar)
     rsi = getRSI(prcSoFar)
@@ -146,6 +128,8 @@ def getMyPosition(prcSoFar):
     short_EMA = EMA[0]
     long_EMA = EMA[1]
 
+    # Get the latest price for each stock
+    last = prcSoFar[:, -1]
 
     for i in range(nInst):
         if vol[i] < VOLATILITY_THRESHOLD:
@@ -155,36 +139,37 @@ def getMyPosition(prcSoFar):
             if (short_EMA[i] < long_EMA[i]):
                 # DOWNTREND, ONLY LOOK FOR SELLING OPPORTUNITIES
                 sell = 0
-                if (rsi[i] >= RSI_SELL):
+                if (rsi[i] >= 70):
                     sell += 1
                 
-                if (cci[i] >= CCI_THRESHOLD):
+                if (cci[i] >= 100):
                     sell += 1
                 
-                if (stoc[i] >= STOCHASTIC_SELL):
+                if (stoc[i] >= 80):
                     sell += 1
                 
                 if sell >= 2:
                     base_position = 5000  
-                    currentPos[i] = -base_position * (sell / 3)  # Scale by signal strength
+                    target_dollars = -base_position * (sell / 3)  # Scale by signal strength
+                    currentPos[i] = round(target_dollars / last[i]) 
                     
             else:
                 # UPTREND, ONLY LOOK FOR BUYING OPPORTUNITIES
                 buy = 0
-                if (rsi[i] <= RSI_BUY):
+                if (rsi[i] <= 30):
                     buy += 1
                 
-                if (cci[i] <= -CCI_THRESHOLD):
+                if (cci[i] <= -100):
                     buy += 1
                 
-                if (stoc[i] <= STOCHASTIC_BUY):
+                if (stoc[i] <= 20):
                     buy += 1
                 
                 if buy >= 2:
                     base_position = 5000
-                    currentPos[i] = base_position * (buy / 3)   # Scale by signal strength
+                    target_dollars = -base_position * (buy / 3)   # Scale by signal strength
+                    currentPos[i] = round(target_dollars / last[i])
                     
     
 
     return currentPos
-            
